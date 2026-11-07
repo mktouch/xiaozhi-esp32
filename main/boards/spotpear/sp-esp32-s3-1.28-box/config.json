@@ -5,7 +5,10 @@
     "builds": [
         {
             "name": "sp-esp32-s3-1.28-box",
-            "sdkconfig_append": []
+            "sdkconfig_append": [
+                "CONFIG_LANGUAGE_DE_DE=y",
+                "CONFIG_SR_WN_WN9_HIESP_MULTI=y"
+            ]
         }
     ]
 }
