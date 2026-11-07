@@ -1,0 +1,53 @@
+name: Build German Firmware (de-DE)
+
+on:
+  workflow_dispatch:
+    inputs:
+      board_name:
+        description: 'Board directory name under main/boards/ (e.g., bread-compact-wifi)'
+        required: true
+        default: 'bread-compact-wifi'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:release-v5.4
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Compile German Firmware
+        shell: bash
+        run: |
+          source /opt/esp/idf/export.sh
+          
+          # Force German locale in sdkconfig defaults
+          echo "CONFIG_LANGUAGE_DE_DE=y" >> sdkconfig.defaults
+          
+          # Build using build.py, release.py, or fallback to idf.py
+          if [ -f "scripts/build.py" ]; then
+            python3 scripts/build.py "${{ github.event.inputs.board_name }}" --language de-DE --zip
+          elif [ -f "scripts/release.py" ]; then
+            # Inject CONFIG_LANGUAGE_DE_DE into the target board's config.json before release.py runs
+            python3 -c "import json, sys; p='main/boards/${{ github.event.inputs.board_name }}/config.json'; d=json.load(open(p)); d.setdefault('sdkconfig_append',[]).append('CONFIG_LANGUAGE_DE_DE=y'); json.dump(d,open(p,'w'),indent=2)"
+            python3 scripts/release.py "${{ github.event.inputs.board_name }}"
+          else
+            idf.py set-target esp32s3
+            idf.py build
+          fi
+
+      - name: Upload Compiled Firmware Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaozhi-german-${{ github.event.inputs.board_name }}
+          path: |
+            releases/*.zip
+            build/*.bin
+            build/bootloader/*.bin
+            build/partition_table/*.bin
+            build/srmodels/*.bin
+          if-no-files-found: warn
