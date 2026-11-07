@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Run in a checkout of XiaoZhi v2.5.2 after sourcing ESP-IDF v6.1 export.sh.
+set -euo pipefail
+python3 - <<'PY'
+from pathlib import Path
+import re, json
+cmake = Path("CMakeLists.txt").read_text(encoding="utf-8")
+assert re.search(r'set\(PROJECT_VER\s+"2\.5\.2"\)', cmake), "Expected v2.5.2"
+board = json.loads(Path("main/boards/spotpear/sp-esp32-s3-1.28-box/config.json").read_text(encoding="utf-8"))
+assert board["target"] == "esp32s3"
+locale = json.loads(Path("main/assets/locales/de-DE/language.json").read_text(encoding="utf-8"))
+assert locale.get("language", {}).get("type") == "de-DE"
+PY
+if [[ -z "${IDF_PATH:-}" ]]; then
+  echo "Please run: source /path/to/esp-idf/export.sh" >&2
+  exit 1
+fi
+python3 scripts/build.py "spotpear/sp-esp32-s3-1.28-box" --language de-DE --zip
+grep -qx 'CONFIG_LANGUAGE_DE_DE=y' sdkconfig
+grep -qx 'CONFIG_BOARD_TYPE_SPOTPEAR_ESP32_S3_1_28_BOX=y' sdkconfig
+test -s build/merged-binary.bin
+test -s releases/v2.5.2_spotpear-sp-esp32-s3-1.28-box.zip
+echo "Built: build/merged-binary.bin"
+echo "Packaged: releases/v2.5.2_spotpear-sp-esp32-s3-1.28-box.zip"
