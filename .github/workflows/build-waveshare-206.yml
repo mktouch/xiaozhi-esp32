@@ -1,0 +1,97 @@
+name: Build Waveshare AMOLED 2.06 Firmware
+
+on:
+  workflow_dispatch: # Allows manual trigger from the "Actions" tab in GitHub
+    inputs:
+      ota_url:
+        description: 'Local OTA URL'
+        required: true
+        default: 'http://10.10.1.47:8002/xiaozhi/ota/'
+      ws_url:
+        description: 'Local WebSocket URL'
+        required: true
+        default: 'ws://10.10.1.47:8000/xiaozhi/v1/'
+  push:
+    branches:
+      - main
+    paths:
+      - 'main/**'
+      - '.github/workflows/build-waveshare-206.yml'
+
+jobs:
+  build_firmware:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.4
+
+    steps:
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache ESP-IDF Managed Components & ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            managed_components
+            ~/.cache/pip
+            ~/.ccache
+          key: ${{ runner.os }}-idf54-xiaozhi-${{ hashFiles('**/idf_component.yml') }}
+
+      - name: Generate Custom Configuration (Waveshare 2.06 + Local IP)
+        run: |
+          # Start from default ESP32-S3 config if available
+          if [ -f "sdkconfig.defaults" ]; then
+            cp sdkconfig.defaults sdkconfig.ci
+          fi
+          if [ -f "sdkconfig.defaults.esp32s3" ]; then
+            cat sdkconfig.defaults.esp32s3 >> sdkconfig.ci
+          fi
+
+          # Append Waveshare ESP32-S3-Touch-AMOLED-2.06 board & 10.10.1.47 server settings
+          cat << 'EOF' >> sdkconfig.ci
+          CONFIG_IDF_TARGET="esp32s3"
+          CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_AMOLED_2_06=y
+          CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+          CONFIG_SPIRAM_MODE_OCT=y
+          CONFIG_SPIRAM_SPEED_80M=y
+          EOF
+
+          # Inject dynamic or default URLs
+          OTA_URL="${{ github.event.inputs.ota_url || 'http://10.10.1.47:8002/xiaozhi/ota/' }}"
+          WS_URL="${{ github.event.inputs.ws_url || 'ws://10.10.1.47:8000/xiaozhi/v1/' }}"
+
+          echo "CONFIG_OTA_URL=\"${OTA_URL}\"" >> sdkconfig.ci
+          echo "CONFIG_WEBSOCKET_URL=\"${WS_URL}\"" >> sdkconfig.ci
+
+      - name: Set Target and Build Firmware
+        run: |
+          . $IDF_PATH/export.sh
+          idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.ci" set-target esp32s3
+          
+          # Verify our board and IP made it into the final sdkconfig
+          grep -E "CONFIG_BOARD_TYPE|CONFIG_OTA_URL|CONFIG_WEBSOCKET_URL" sdkconfig || true
+          
+          idf.py build
+
+      - name: Merge Binaries into Single Flashable Image
+        run: |
+          . $IDF_PATH/export.sh
+          cd build
+          esptool.py --chip esp32s3 merge_bin \
+            -o firmware-waveshare-2.06-merged.bin \
+            --flash_mode dio \
+            --flash_freq 80m \
+            --flash_size 16MB \
+            @flash_args
+
+      - name: Upload Firmware Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: waveshare-amoled-2.06-local-10.10.1.47
+          path: |
+            build/firmware-waveshare-2.06-merged.bin
+            build/xiaozhi.bin
+            sdkconfig
+          retention-days: 14
